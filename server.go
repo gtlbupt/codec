@@ -7,8 +7,8 @@ import (
 	"net/rpc"
 	"sync"
 
+	"./wirepb"
 	"github.com/golang/protobuf/proto"
-	"github.com/mars9/codec/wirepb"
 )
 
 const defaultBufferSize = 4 * 1024

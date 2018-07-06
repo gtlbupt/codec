@@ -8,7 +8,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/mars9/codec/internal"
+	"./internal"
 )
 
 var (
