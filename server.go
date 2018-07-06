@@ -7,7 +7,7 @@ import (
 	"net/rpc"
 	"sync"
 
-	"./wirepb"
+	brpc "./proto"
 	"github.com/golang/protobuf/proto"
 )
 
@@ -15,11 +15,11 @@ const defaultBufferSize = 4 * 1024
 
 type serverCodec struct {
 	mu   sync.Mutex // exclusive writer lock
-	resp wirepb.ResponseHeader
+	resp brpc.RpcMeta
 	enc  *Encoder
 	w    *bufio.Writer
 
-	req wirepb.RequestHeader
+	req brpc.RpcMeta
 	dec *Decoder
 	c   io.Closer
 }
@@ -46,20 +46,35 @@ func NewServerCodec(rwc io.ReadWriteCloser) rpc.ServerCodec {
 
 func (c *serverCodec) WriteResponse(resp *rpc.Response, body interface{}) error {
 	c.mu.Lock()
-	c.resp.Method = resp.ServiceMethod
-	c.resp.Seq = resp.Seq
-	c.resp.Error = resp.Error
+	c.resp.Response = &brpc.RpcResponseMeta{
+		ErrorCode: proto.Int32(0),
+		ErrorText: proto.String(""),
+	}
+	c.resp.CorrelationId = proto.Int64(int64(resp.Seq))
 
-	err := encode(c.enc, &c.resp)
-	if err != nil {
-		c.mu.Unlock()
-		return err
+	{
+		var buf, err = proto.Marshal(&c.resp)
+		if err != nil {
+			c.mu.Unlock()
+			return err
+		}
+		c.w.Write(buf)
 	}
-	if err = encode(c.enc, body); err != nil {
-		c.mu.Unlock()
-		return err
+
+	{
+		pb, ok := body.(proto.Message)
+		if !ok {
+			return fmt.Errorf("body not proto.Message")
+		}
+		var buf, err = proto.Marshal(pb)
+		if err != nil {
+			c.mu.Unlock()
+			return err
+		}
+		c.w.Write(buf)
 	}
-	err = c.w.Flush()
+
+	var err = c.w.Flush()
 	c.mu.Unlock()
 	return err
 }
@@ -70,14 +85,14 @@ func (c *serverCodec) ReadRequestHeader(req *rpc.Request) error {
 		return err
 	}
 
-	req.ServiceMethod = c.req.Method
-	req.Seq = c.req.Seq
+	req.ServiceMethod = fmt.Sprintf("%s.%s", c.req.Request.ServiceName, c.req.Request.MethodName)
+	req.Seq = uint64(*c.req.CorrelationId)
 	return nil
 }
 
 func (c *serverCodec) ReadRequestBody(body interface{}) error {
 	if pb, ok := body.(proto.Message); ok {
-		return c.dec.Decode(pb)
+		return c.dec.DecodeRequestBody(pb)
 	}
 	return fmt.Errorf("%T does not implement proto.Message", body)
 }

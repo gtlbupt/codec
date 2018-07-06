@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"io"
+	"log"
 	"net/rpc"
 	"strings"
 	"sync"
@@ -44,6 +45,7 @@ func NewClientCodec(rwc io.ReadWriteCloser) rpc.ClientCodec {
 }
 
 func (c *clientCodec) WriteRequest(req *rpc.Request, body interface{}) error {
+	log.Printf("WriteRequest")
 	c.mu.Lock()
 	{
 		var serviceName = ExtractServiceName(req.ServiceMethod)
@@ -75,7 +77,7 @@ func (c *clientCodec) WriteRequest(req *rpc.Request, body interface{}) error {
 
 	var packetHeader = brpc.PacketHeader{}
 	packetHeader.SetMetaSize(len(rpcMeta))
-	packetHeader.SetBodySize(len(rpcData))
+	packetHeader.SetBodySize(len(rpcData) + len(rpcMeta))
 
 	{
 		var data, _ = packetHeader.Marshal()
@@ -94,10 +96,12 @@ func (c *clientCodec) WriteRequest(req *rpc.Request, body interface{}) error {
 }
 
 func (c *clientCodec) ReadResponseHeader(resp *rpc.Response) error {
+	log.Printf("ReadResponseHeader")
 	c.resp.Reset()
-	if err := c.dec.Decode(&c.resp); err != nil {
+	if err := c.dec.DecodeResponseHeader(&c.resp); err != nil {
 		return err
 	}
+	log.Printf("[c.Resp:%+v]", c.resp)
 
 	// resp.ServiceMethod = c.resp.Method
 	resp.Seq = uint64(*c.resp.CorrelationId)
@@ -107,7 +111,9 @@ func (c *clientCodec) ReadResponseHeader(resp *rpc.Response) error {
 
 func (c *clientCodec) ReadResponseBody(body interface{}) (err error) {
 	if pb, ok := body.(proto.Message); ok {
-		return c.dec.Decode(pb)
+		err = c.dec.DecodeResponseBody(pb)
+		log.Printf("[body:%v][err:%v]", pb, err)
+		return err
 	}
 	return fmt.Errorf("%T does not implement proto.Message", body)
 }

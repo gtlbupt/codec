@@ -2,11 +2,16 @@ package codec
 
 import (
 	"bytes"
+	"fmt"
+	"net"
 	"net/rpc"
 	"reflect"
 	"testing"
 
+	example "./example"
 	"./internal"
+
+	"github.com/golang/protobuf/proto"
 )
 
 type buffer struct {
@@ -14,6 +19,23 @@ type buffer struct {
 }
 
 func (c buffer) Close() error { return nil }
+
+func TestReq(t *testing.T) {
+	var conn, err = net.Dial("tcp", "127.0.0.1:8170")
+	if err != nil {
+		t.Errorf("[err:%v]", err)
+	}
+
+	var client = rpc.NewClientWithCodec(NewClientCodec(conn))
+
+	var req = example.EchoRequest{
+		Message: proto.String("Hello World"),
+	}
+	var resp = example.EchoResponse{}
+	resp.Reset()
+	err = client.Call("EchoService.Echo", &req, &resp)
+	fmt.Printf("[err:%v][req:%v][resp:%v]", err, req, resp)
+}
 
 func TestClientCodecBasic(t *testing.T) {
 	t.Parallel()
